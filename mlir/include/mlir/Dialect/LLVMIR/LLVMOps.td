@@ -1735,6 +1735,7 @@ def LLVM_LLVMFuncOp : LLVM_Op<"func", [
     OptionalAttr<StrAttr>:$section,
     OptionalAttr<UnnamedAddr>:$unnamed_addr,
     OptionalAttr<I64Attr>:$alignment,
+    OptionalAttr<ConfinedAttr<I32Attr, [IntNonNegative]>>:$addr_space,
     OptionalAttr<LLVM_VScaleRangeAttr>:$vscale_range,
     OptionalAttr<FramePointerKindAttr>:$frame_pointer,
     OptionalAttr<StrAttr>:$target_cpu,
