@@ -376,7 +376,7 @@ public:
   cir::LoadOp createLoad(mlir::Location loc, mlir::Value ptr,
                          bool isVolatile = false, uint64_t alignment = 0,
                          bool isNontemporal = false) {
-    mlir::IntegerAttr alignmentAttr = getAlignmentAttr(alignment);
+    cir::AlignmentAttr alignmentAttr = getAlignmentAttr(alignment);
     return cir::LoadOp::create(*this, loc, ptr, /*isDeref=*/false, isVolatile,
                                isNontemporal, alignmentAttr,
                                cir::SyncScopeKindAttr{}, cir::MemOrderAttr{},
@@ -477,7 +477,7 @@ public:
   }
 
   mlir::Value createAlloca(mlir::Location loc, cir::PointerType addrType,
-                           llvm::StringRef name, mlir::IntegerAttr alignment,
+                           llvm::StringRef name, cir::AlignmentAttr alignment,
                            mlir::Value dynAllocSize) {
     return cir::AllocaOp::create(*this, loc, addrType, name, alignment,
                                  dynAllocSize);
@@ -487,18 +487,18 @@ public:
                            mlir::Type type, llvm::StringRef name,
                            clang::CharUnits alignment,
                            mlir::Value dynAllocSize) {
-    mlir::IntegerAttr alignmentAttr = getAlignmentAttr(alignment);
+    cir::AlignmentAttr alignmentAttr = getAlignmentAttr(alignment);
     return createAlloca(loc, addrType, name, alignmentAttr, dynAllocSize);
   }
 
   mlir::Value createAlloca(mlir::Location loc, cir::PointerType addrType,
-                           llvm::StringRef name, mlir::IntegerAttr alignment) {
+                           llvm::StringRef name, cir::AlignmentAttr alignment) {
     return cir::AllocaOp::create(*this, loc, addrType, name, alignment);
   }
 
   mlir::Value createAlloca(mlir::Location loc, cir::PointerType addrType,
                            llvm::StringRef name, clang::CharUnits alignment) {
-    mlir::IntegerAttr alignmentAttr = getAlignmentAttr(alignment);
+    cir::AlignmentAttr alignmentAttr = getAlignmentAttr(alignment);
     return createAlloca(loc, addrType, name, alignmentAttr);
   }
 
@@ -556,7 +556,7 @@ public:
 
   cir::StoreOp createStore(mlir::Location loc, mlir::Value val, mlir::Value dst,
                            bool isVolatile = false, bool isNontemporal = false,
-                           mlir::IntegerAttr align = {},
+                           cir::AlignmentAttr align = {},
                            cir::SyncScopeKindAttr scope = {},
                            cir::MemOrderAttr order = {}) {
     if (mlir::cast<cir::PointerType>(dst.getType()).getPointee() !=
@@ -598,7 +598,7 @@ public:
 
   mlir::Value createDummyValue(mlir::Location loc, mlir::Type type,
                                clang::CharUnits alignment) {
-    mlir::IntegerAttr alignmentAttr = getAlignmentAttr(alignment);
+    cir::AlignmentAttr alignmentAttr = getAlignmentAttr(alignment);
     auto addr = createAlloca(loc, getPointerTo(type), {}, alignmentAttr);
     return cir::LoadOp::create(*this, loc, addr, /*isDeref=*/false,
                                /*isVolatile=*/false, /*nontemporal=*/false,
@@ -1096,16 +1096,16 @@ public:
 
   // For 0 alignment, any overload of `getAlignmentAttr` returns an empty
   // attribute.
-  mlir::IntegerAttr getAlignmentAttr(clang::CharUnits alignment) {
+  cir::AlignmentAttr getAlignmentAttr(clang::CharUnits alignment) {
     return getAlignmentAttr(alignment.getQuantity());
   }
 
-  mlir::IntegerAttr getAlignmentAttr(llvm::Align alignment) {
+  cir::AlignmentAttr getAlignmentAttr(llvm::Align alignment) {
     return getAlignmentAttr(alignment.value());
   }
 
-  mlir::IntegerAttr getAlignmentAttr(int64_t alignment) {
-    return alignment ? getI64IntegerAttr(alignment) : mlir::IntegerAttr();
+  cir::AlignmentAttr getAlignmentAttr(int64_t alignment) {
+    return alignment ? getAlignmentAttr(alignment) : cir::AlignmentAttr();
   }
 
   // Materialize an alignment value as a CIR integer constant of the given

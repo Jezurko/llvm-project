@@ -405,7 +405,7 @@ void LowerItaniumCXXABI::lowerGetMethod(
         cir::LoadOp::create(b, loc, vtablePtrPtr, /*isDeref=*/false,
                             /*isVolatile=*/false,
                             /*isNontemporal=*/false,
-                            /*alignment=*/mlir::IntegerAttr(),
+                            /*alignment=*/cir::AlignmentAttr(),
                             /*sync_scope=*/cir::SyncScopeKindAttr{},
                             /*mem_order=*/cir::MemOrderAttr(),
                             /*invariant=*/false);
@@ -782,7 +782,7 @@ static mlir::Value buildDynamicCastToVoidAfterNullCheck(
                           /*isDeref=*/false,
                           /*is_volatile=*/false,
                           /*isNontemporal=*/false,
-                          /*alignment=*/builder.getI64IntegerAttr(vptrAlign),
+                          /*alignment=*/cir::AlignmentAttr::get(builder.getContext(), vptrAlign),
                           /*sync_scope=*/cir::SyncScopeKindAttr(),
                           /*mem_order=*/cir::MemOrderAttr(),
                           /*invariant=*/false);
@@ -888,7 +888,7 @@ mlir::Value LowerItaniumCXXABI::readArrayCookieImpl(
   return cir::LoadOp::create(
       builder, loc, countPtr, /*isDeref=*/false, /*isVolatile=*/false,
       /*isNontemporal=*/false,
-      builder.getI64IntegerAttr(countAlignment.getQuantity()),
+      cir::AlignmentAttr::get(builder.getContext(), countAlignment.getQuantity()),
       cir::SyncScopeKindAttr(), cir::MemOrderAttr(),
       /*invariant=*/false);
 }

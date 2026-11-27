@@ -1236,6 +1236,17 @@ RecordLayoutAttr cir::getRecordLayout(mlir::ModuleOp mod,
 }
 
 //===----------------------------------------------------------------------===//
+// AlignmentAttr
+//===----------------------------------------------------------------------===//
+
+LogicalResult AlignmentAttr::verify(function_ref<InFlightDiagnostic()> emitError, uint64_t align) {
+    if (align == 0 || !llvm::isPowerOf2_64(align))
+        return emitError() << "alignment has to be positive power of 2";
+    return success();
+}
+
+
+//===----------------------------------------------------------------------===//
 // CIR Dialect
 //===----------------------------------------------------------------------===//
 

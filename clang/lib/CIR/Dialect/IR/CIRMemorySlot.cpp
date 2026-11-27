@@ -151,7 +151,7 @@ DeletionKind cir::CopyOp::removeBlockingUses(
     cir::StoreOp::create(builder, getLoc(), reachingDefinition, getDst(),
                          /*is_volatile=*/false,
                          /*is_nontemporal=*/false,
-                         /*alignment=*/mlir::IntegerAttr{},
+                         /*alignment=*/cir::AlignmentAttr{},
                          /*sync_scope=*/cir::SyncScopeKindAttr(),
                          /*mem-order=*/cir::MemOrderAttr());
   return DeletionKind::Delete;

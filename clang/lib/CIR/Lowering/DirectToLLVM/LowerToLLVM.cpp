@@ -1593,7 +1593,7 @@ mlir::LogicalResult CIRToLLVMAtomicCmpXchgOpLowering::matchAndRewrite(
       getLLVMSyncScope(op.getSyncScope(),
                        op->getParentOfType<mlir::ModuleOp>()));
 
-  cmpxchg.setAlignment(adaptor.getAlignment());
+  cmpxchg.setAlignment(op.getAlignmentValue());
   cmpxchg.setWeak(adaptor.getWeak());
   cmpxchg.setVolatile_(adaptor.getIsVolatile());
   forwardAMDGPUNoPrivateAddrSpace(op, cmpxchg, adaptor.getPtr());
@@ -6583,7 +6583,7 @@ mlir::LogicalResult CIRToLLVMSetBitfieldOpLowering::matchAndRewrite(
     assert(storageSize > size && "Invalid bitfield size.");
 
     mlir::Value val = mlir::LLVM::LoadOp::create(
-        rewriter, op.getLoc(), intType, adaptor.getAddr(), op.getAlignment(),
+        rewriter, op.getLoc(), intType, adaptor.getAddr(), op.getAlignment().value_or(0),
         op.getIsVolatile());
 
     srcVal =

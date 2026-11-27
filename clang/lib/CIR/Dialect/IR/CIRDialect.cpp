@@ -554,7 +554,7 @@ void cir::printOmittedTerminatorRegion(mlir::OpAsmPrinter &printer,
 
 void cir::AllocaOp::build(mlir::OpBuilder &odsBuilder,
                           mlir::OperationState &odsState, mlir::Type addr,
-                          llvm::StringRef name, mlir::IntegerAttr alignment) {
+                          llvm::StringRef name, cir::AlignmentAttr alignment) {
   odsState.addAttribute(getNameAttrName(odsState.name),
                         odsBuilder.getStringAttr(name));
   if (alignment) {

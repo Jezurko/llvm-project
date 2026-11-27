@@ -527,7 +527,7 @@ static cir::AllocaOp createCoercionSlot(
   builder.setInsertionPointToStart(slotBlock);
   auto alloca = cir::AllocaOp::create(builder, loc, getAllocaPtrTy(slotTy, dl),
                                       builder.getStringAttr("coerce"),
-                                      builder.getI64IntegerAttr(allocaAlign));
+                                      cir::AlignmentAttr::get(builder.getContext(), allocaAlign));
   createdOps.insert(alloca);
   return alloca;
 }
@@ -722,7 +722,7 @@ static mlir::Value emitInPlaceCoercedLoad(mlir::OpBuilder &builder,
   mlir::Value view = emitViewAtOffset(builder, loc, coercedTy, load.getAddr(),
                                       ignored, offset);
   auto coerced = cir::LoadOp::create(builder, loc, view);
-  coerced.setAlignment(llvm::MinAlign(src.getAlignment(), offset));
+  coerced.setAlignment(llvm::MinAlign(src.getAlignmentValue(), offset));
   return coerced;
 }
 
@@ -738,16 +738,17 @@ emitCopiedCoercionSlot(mlir::OpBuilder &builder, mlir::Location loc,
                        unsigned offset) {
   auto recTy = cast<cir::RecordType>(load.getType());
   uint64_t srcAlign;
-  if (cir::AllocaOp src = cir::getUnderlyingAlloca(load.getAddr()))
-    srcAlign = src.getAlignment();
-  else
-    srcAlign = load.getAlignment().value_or(
-        cir::CIRDataLayout(load->getParentOfType<mlir::ModuleOp>())
-            .getTypeLanguageAlignment(recTy));
+  if (cir::AllocaOp src = cir::getUnderlyingAlloca(load.getAddr())) {
+    srcAlign = src.getAlignmentValue();
+  } else {
+    auto alignment = load.getAlignmentAttr();
+    srcAlign = alignment ? alignment.getAlign() : cir::CIRDataLayout(load->getParentOfType<mlir::ModuleOp>())
+            .getTypeLanguageAlignment(recTy);
+  }
   SmallPtrSet<mlir::Operation *, 4> ignored;
   cir::AllocaOp slot = createCoercionSlot(builder, loc, recTy, coercedTy,
                                           slotBlock, dl, ignored, offset);
-  slot.setAlignment(std::max(slot.getAlignment(), srcAlign));
+  slot.setAlignment(std::max(slot.getAlignmentValue(), srcAlign));
   assert((offset == 0 || slot.getAllocaType() == recTy) &&
          "a direct offset must leave the record as the slot's type");
   mlir::OpBuilder::InsertionGuard guard(builder);
@@ -756,8 +757,8 @@ emitCopiedCoercionSlot(mlir::OpBuilder &builder, mlir::Location loc,
       emitViewAtOffset(builder, loc, recTy, slot, ignored, /*offset=*/0);
   auto copy =
       cir::CopyOp::create(builder, loc, recView, load.getAddr(),
-                          builder.getI64IntegerAttr(slot.getAlignment()),
-                          builder.getI64IntegerAttr(srcAlign));
+                          cir::AlignmentAttr::get(builder.getContext(), slot.getAlignmentValue()),
+                          cir::AlignmentAttr::get(builder.getContext(), srcAlign));
   copy.setIsVolatile(load.getIsVolatile());
   return slot;
 }
@@ -779,7 +780,7 @@ static mlir::Value emitCopiedCoercedLoad(mlir::OpBuilder &builder,
   mlir::Value coercedView =
       emitViewAtOffset(builder, loc, coercedTy, slot, ignored, offset);
   auto coerced = cir::LoadOp::create(builder, loc, coercedView);
-  coerced.setAlignment(llvm::MinAlign(slot.getAlignment(), offset));
+  coerced.setAlignment(llvm::MinAlign(slot.getAlignmentValue(), offset));
   return coerced;
 }
 
@@ -873,17 +874,18 @@ rewireRecordUses(mlir::OpBuilder &builder, mlir::Location loc, mlir::Value val,
     otherUses.push_back(&use);
   }
 
-  mlir::IntegerAttr srcAlign = builder.getI64IntegerAttr(addrAlign);
+  auto srcAlign = cir::AlignmentAttr::get(builder.getContext(), addrAlign);
   cir::CIRDataLayout cirDataLayout(
       val.getParentRegion()->getParentOfType<mlir::ModuleOp>());
   for (cir::StoreOp store : stores) {
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPoint(store);
-    uint64_t dstAlign = store.getAlignment().value_or(
-        cirDataLayout.getTypeLanguageAlignment(recTy));
+    auto dstAlignAttr = store.getAlignmentAttr();
+    uint64_t dstAlign = dstAlignAttr ? dstAlignAttr.getAlign() :
+        cirDataLayout.getTypeLanguageAlignment(recTy);
     auto copy =
         cir::CopyOp::create(builder, store.getLoc(), store.getAddr(), addr,
-                            builder.getI64IntegerAttr(dstAlign), srcAlign);
+                            cir::AlignmentAttr::get(builder.getContext(), dstAlign), srcAlign);
     copy.setIsVolatile(store.getIsVolatile());
     copy.setSkipTailPadding(shouldSkipTailPadding(store.getAddr(), recTy));
     store->erase();
@@ -915,7 +917,7 @@ replaceUsesFromSlot(mlir::OpBuilder &builder, mlir::Location loc,
   }
   cir::AllocaOp slot = cir::getUnderlyingAlloca(view);
   assert(slot && "the view must start at the coercion slot");
-  return rewireRecordUses(builder, loc, val, view, slot.getAlignment(), dl,
+  return rewireRecordUses(builder, loc, val, view, slot.getAlignmentValue(), dl,
                           exceptions);
 }
 
@@ -1030,7 +1032,7 @@ static mlir::Value forwardableIndirectAddr(cir::LoadOp load,
   if (addr.getType() != paramTy)
     return {};
   cir::AllocaOp slot = cir::getUnderlyingAlloca(addr);
-  return slot && slot.getAlignment() >= minAlign ? addr : mlir::Value();
+  return slot && slot.getAlignmentValue() >= minAlign ? addr : mlir::Value();
 }
 
 /// True when \p aliasAnalysis shows that nothing between \p load and \p call
@@ -1061,13 +1063,13 @@ static bool storageUnwrittenBetween(cir::LoadOp load, mlir::Operation *call,
 /// one \p load states, or the underlying slot's when it states none.  A load
 /// with neither names storage this pass cannot reason about, so the copy is
 /// left to assume nothing.
-static mlir::IntegerAttr loadSourceAlignment(cir::LoadOp load,
+static cir::AlignmentAttr loadSourceAlignment(cir::LoadOp load,
                                              mlir::OpBuilder &builder) {
-  if (mlir::IntegerAttr stated = load.getAlignmentAttr())
+  if (cir::AlignmentAttr stated = load.getAlignmentAttr())
     return stated;
   if (cir::AllocaOp slot = cir::getUnderlyingAlloca(load.getAddr()))
-    return builder.getI64IntegerAttr(slot.getAlignment());
-  return builder.getI64IntegerAttr(1);
+    return slot.getAlignment();
+  return cir::AlignmentAttr::get(builder.getContext(), 1);
 }
 
 /// Decompose a struct value into one scalar call argument per field of \p
@@ -1306,7 +1308,7 @@ insertArgCoercion(mlir::FunctionOpInterface funcOp,
         slot = cir::AllocaOp::create(
             builder, loc, getAllocaPtrTy(flatTy, dl),
             builder.getStringAttr("coerce"),
-            builder.getI64IntegerAttr(
+            cir::AlignmentAttr::get(builder.getContext(),
                 cir::CIRDataLayout(funcOp->getParentOfType<mlir::ModuleOp>())
                     .getTypeLanguageAlignment(flatTy)));
         flattenOps.insert(slot);
@@ -1328,7 +1330,7 @@ insertArgCoercion(mlir::FunctionOpInterface funcOp,
             builder, loc, entry.getArgument(blockArgIdx + f), fieldPtr);
         // A packed slot can be less aligned than the field's own type.
         uint64_t fieldAlign =
-            llvm::MinAlign(slot.getAlignment(), flatTy.getElementOffset(dl, f));
+            llvm::MinAlign(slot.getAlignmentValue(), flatTy.getElementOffset(dl, f));
         if (fieldAlign < dl.getTypeABIAlignment(fieldTy))
           storeOp.setAlignment(fieldAlign);
         flattenOps.insert(storeOp);

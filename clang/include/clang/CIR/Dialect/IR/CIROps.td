@@ -238,6 +238,20 @@ defvar CIR_VolatileOrAtomicAccessDecl = [{
   }
 }];
 
+// Declares setAlignment() on cir.alignment user.
+defvar CIR_AlignmentDecls = [{
+  /// Set optional alignment atribute from plain integer.
+  void setAlignment(uint64_t align) {
+    auto &odsProp = getProperties().alignment;
+    odsProp = align ? cir::AlignmentAttr::get(this->getContext(), align) : cir::AlignmentAttr();
+  }
+
+  uint64_t getAlignmentValue() {
+    auto attr = getProperties().alignment;
+    return attr ? attr.getAlign() : 0;
+  }
+}];
+
 //===----------------------------------------------------------------------===//
 // CastOp
 //===----------------------------------------------------------------------===//
@@ -817,7 +831,7 @@ def CIR_AllocaOp : CIR_Op<"alloca", [
     UnitAttr:$init,
     UnitAttr:$constant,
     UnitAttr:$cleanup_dest_slot,
-    ConfinedAttr<I64Attr, [IntMinValue<1>]>:$alignment
+    CIR_AlignmentAttr:$alignment
   );
 
   let results = (outs Res<CIR_PointerType, "",
@@ -827,11 +841,11 @@ def CIR_AllocaOp : CIR_Op<"alloca", [
   let builders = [
     OpBuilder<(ins "mlir::Type":$addr,
                    "llvm::StringRef":$name,
-                   "mlir::IntegerAttr":$alignment)>,
+                   "cir::AlignmentAttr":$alignment)>,
 
     OpBuilder<(ins "mlir::Type":$addr,
                    "llvm::StringRef":$name,
-                   "mlir::IntegerAttr":$alignment,
+                   "cir::AlignmentAttr":$alignment,
                    "mlir::Value":$dynAllocSize),
     [{
       if (dynAllocSize)
@@ -840,7 +854,7 @@ def CIR_AllocaOp : CIR_Op<"alloca", [
     }]>
   ];
 
-  let extraClassDeclaration = [{
+  let extraClassDeclaration = CIR_AlignmentDecls # [{
     mlir::Type getAllocaType() {
       return mlir::cast<cir::PointerType>(getAddr().getType()).getPointee();
     }
@@ -912,7 +926,7 @@ def CIR_LoadOp : CIR_Op<"load", [
                        UnitAttr:$isDeref,
                        UnitAttr:$is_volatile,
                        UnitAttr:$is_nontemporal,
-                       OptionalAttr<I64Attr>:$alignment,
+                       OptionalAttr<CIR_AlignmentAttr>:$alignment,
                        OptionalAttr<CIR_SyncScopeKindAttr>:$sync_scope,
                        OptionalAttr<CIR_MemOrderAttr>:$mem_order,
                        UnitAttr:$invariant);
@@ -933,18 +947,18 @@ def CIR_LoadOp : CIR_Op<"load", [
     OpBuilder<(ins "mlir::Value":$addr), [{
       build($_builder, $_state, addr, /*isDeref=*/false,
             /*is_volatile=*/false, /*is_nontemporal=*/false,
-            /*alignment=*/mlir::IntegerAttr{}, cir::SyncScopeKindAttr{},
+            /*alignment=*/cir::AlignmentAttr{}, cir::SyncScopeKindAttr{},
             cir::MemOrderAttr{}, /*invariant=*/false);
     }]>,
     OpBuilder<(ins "mlir::Type":$result, "mlir::Value":$addr), [{
       build($_builder, $_state, result, addr, /*isDeref=*/false,
             /*is_volatile=*/false, /*is_nontemporal=*/false,
-            /*alignment=*/mlir::IntegerAttr{}, cir::SyncScopeKindAttr{},
+            /*alignment=*/cir::AlignmentAttr{}, cir::SyncScopeKindAttr{},
             cir::MemOrderAttr{}, /*invariant=*/false);
     }]>
   ];
 
-  let extraClassDeclaration = CIR_VolatileOrAtomicAccessDecl;
+  let extraClassDeclaration = !strconcat(CIR_VolatileOrAtomicAccessDecl, CIR_AlignmentDecls);
 
   // FIXME: add verifier.
 }
@@ -980,7 +994,7 @@ def CIR_VecMaskedLoadOp : CIR_Op<"vec.masked_load", [
     Arg<CIR_PointerType, "base address (points to element type)", [MemRead]>:$addr,
     CIR_VectorType:$mask,
     CIR_VectorType:$pass_thru,
-    OptionalAttr<IntValidAlignment<I64Attr>>:$alignment
+    OptionalAttr<CIR_AlignmentAttr>:$alignment
   );
 
   let results = (outs CIR_AnyType:$result);
@@ -1032,7 +1046,7 @@ def CIR_StoreOp : CIR_Op<"store", [
                            [MemWrite]>:$addr,
                        UnitAttr:$is_volatile,
                        UnitAttr:$is_nontemporal,
-                       OptionalAttr<I64Attr>:$alignment,
+                       OptionalAttr<CIR_AlignmentAttr>:$alignment,
                        OptionalAttr<CIR_SyncScopeKindAttr>:$sync_scope,
                        OptionalAttr<CIR_MemOrderAttr>:$mem_order);
 
@@ -1050,13 +1064,13 @@ def CIR_StoreOp : CIR_Op<"store", [
     OpBuilder<(ins "mlir::Value":$value, "mlir::Value":$addr), [{
       build($_builder, $_state, value, addr, /*is_volatile=*/mlir::UnitAttr(),
             /*is_nontemporal=*/mlir::UnitAttr(),
-            /*alignment=*/mlir::IntegerAttr(),
+            /*alignment=*/cir::AlignmentAttr(),
             /*sync_scope=*/cir::SyncScopeKindAttr(),
             /*mem_order=*/cir::MemOrderAttr());
     }]>
   ];
 
-  let extraClassDeclaration = CIR_VolatileOrAtomicAccessDecl;
+  let extraClassDeclaration = !strconcat(CIR_VolatileOrAtomicAccessDecl, CIR_AlignmentDecls);
 
   // FIXME: add verifier.
 }
@@ -4153,7 +4167,7 @@ def CIR_SetBitfieldOp : CIR_Op<"set_bitfield"> {
     Arg<CIR_PointerType, "the address to store the value", [MemWrite]>:$addr,
     CIR_AnyType:$src,
     CIR_BitfieldInfoAttr:$bitfield_info,
-    DefaultValuedOptionalAttr<I64Attr, "0">:$alignment,
+    OptionalAttr<CIR_AlignmentAttr>:$alignment,
     UnitAttr:$is_volatile
   );
 
@@ -4182,7 +4196,9 @@ def CIR_SetBitfieldOp : CIR_Op<"set_bitfield"> {
         BitfieldInfoAttr::get($_builder.getContext(),
                               name, storage_type,
                               size, offset, is_signed);
-      build($_builder, $_state, type, addr, src, info, alignment, is_volatile);
+      cir::AlignmentAttr align_attr = alignment ? AlignmentAttr() :
+        cir::AlignmentAttr::get($_builder.getContext(), alignment);
+      build($_builder, $_state, type, addr, src, info, align_attr, is_volatile);
     }]>
   ];
 }
@@ -5787,8 +5803,8 @@ def CIR_CopyOp : CIR_Op<"copy",[
   let arguments = (ins
       Arg<CIR_PointerType, "", [MemWrite]>:$dst,
       Arg<CIR_PointerType, "", [MemRead]>:$src,
-      OptionalAttr<I64Attr>:$dst_alignment,
-      OptionalAttr<I64Attr>:$src_alignment,
+      OptionalAttr<CIR_AlignmentAttr>:$dst_alignment,
+      OptionalAttr<CIR_AlignmentAttr>:$src_alignment,
       UnitAttr:$is_volatile,
       UnitAttr:$skip_tail_padding
   );
@@ -10739,7 +10755,7 @@ def CIR_AtomicCmpXchgOp : CIR_Op<"atomic.cmpxchg", [
                        Arg<CIR_MemOrderAttr, "success memory order">:$succ_order,
                        Arg<CIR_MemOrderAttr, "failure memory order">:$fail_order,
                        CIR_SyncScopeKindAttr:$sync_scope,
-                       OptionalAttr<I64Attr>:$alignment,
+                       OptionalAttr<CIR_AlignmentAttr>:$alignment,
                        UnitAttr:$weak,
                        UnitAttr:$is_volatile);
 
@@ -10774,7 +10790,7 @@ def CIR_AtomicTestAndSetOp : CIR_Op<"atomic.test_and_set"> {
   let arguments = (ins
     Arg<CIR_PtrToType<CIR_SInt8>, "", [MemRead, MemWrite]>:$ptr,
     Arg<CIR_MemOrderAttr, "memory order">:$mem_order,
-    OptionalAttr<I64Attr>:$alignment,
+    OptionalAttr<CIR_AlignmentAttr>:$alignment,
     UnitAttr:$is_volatile
   );
 
@@ -10806,7 +10822,7 @@ def CIR_AtomicClearOp : CIR_Op<"atomic.clear"> {
   let arguments = (ins
     Arg<CIR_PtrToType<CIR_SInt8>, "", [MemRead, MemWrite]>:$ptr,
     Arg<CIR_MemOrderAttr, "memory order">:$mem_order,
-    OptionalAttr<I64Attr>:$alignment,
+    OptionalAttr<CIR_AlignmentAttr>:$alignment,
     UnitAttr:$is_volatile
   );
 
@@ -11070,7 +11086,7 @@ def CIR_ClearPaddingOp : CIR_Op<"clear_padding", []> {
 
   let arguments = (ins
       Arg<CIR_PointerType, "", [MemWrite]> : $arg,
-      ConfinedAttr<I64Attr, [IntMinValue<1>]>:$alignment,
+      CIR_AlignmentAttr:$alignment,
       CIR_TypedArrayAttrBase<CIR_OffsetPairAttr,
                              "array of padding locations">:$padding
       );

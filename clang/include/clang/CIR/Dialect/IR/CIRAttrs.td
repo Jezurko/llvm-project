@@ -2929,4 +2929,15 @@ def CIR_CXXModuleInitAttr : CIR_Attr<"CXXModuleInit", "cxx_module_init"> {
   let canHaveIllegalCXXABIType = 0;
 }
 
+//===----------------------------------------------------------------------===//
+// AlignmentAttr
+//===----------------------------------------------------------------------===//
+
+def CIR_AlignmentAttr : CIR_Attr<"Alignment", "alignment"> {
+  let parameters = (ins "uint64_t":$align);
+  let assemblyFormat = "`<` $align `>`";
+
+  let genVerifyDecl = 1;
+}
+
 #endif // CLANG_CIR_DIALECT_IR_CIRATTRS_TD
